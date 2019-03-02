@@ -1,7 +1,7 @@
 /*
  * Dekoration
  *
- * Copyright (c) 2018 Yuichiro MORIGUCHI
+ * Copyright (c) 2019 Yuichiro MORIGUCHI
  *
  * This software is released under the MIT License.
  * http://opensource.org/licenses/mit-license.php
@@ -20,18 +20,20 @@ function convertSpecialForm(form) {
 	var result,
 		resultLambda,
 		i;
-	function convertLet(beginIndex) {
+	function convertLet(beginIndex, letType) {
 		var letPart = {},
+			letClause = {},
+			result = {},
 			i;
 		for(i = beginIndex + 1; i < form.length; i += 2) {
 			letPart[form[i - 1]] = convertSpecialForm(form[i]);
 		}
-		return {
-			"let": {
-				"vars": letPart,
-				"begin": [convertSpecialForm(form[i - 1])]
-			}
+		letClause = {
+			"vars": letPart,
+			"begin": [convertSpecialForm(form[i - 1])]
 		};
+		result[letType] = letClause;
+		return result;
 	}
 	function convertLambda(beginIndex) {
 		var args = form.slice(beginIndex, form.length - 1);
@@ -79,11 +81,13 @@ function convertSpecialForm(form) {
 				"begin": [convertSpecialForm(form[1])]
 			}
 		} else if(form[0] === "let") {
-			return convertLet(1);
+			return convertLet(1, "let");
 		} else if(form[0] === "loop") {
-			result = convertLet(2);
+			result = convertLet(2, "let");
 			result["name"] = form[1];
 			return result;
+		} else if(form[0] === "letrec") {
+			return convertLet(1, "letrec");
 		} else if(form[0] === "function") {
 			resultLambda = convertLambda(2);
 			result = {};
@@ -109,6 +113,26 @@ function convertSpecialForm(form) {
 			return {
 				"begin": convertArray(1)
 			};
+		} else if(form[0] === "message") {
+			result = {};
+			for(i = 2; i < form.length; i += 2) {
+				result[form[i - 1]] = convertSpecialForm(form[i]);
+			}
+			if(form[i - 1]) {
+				return {
+					"message": {
+						"extends": convertSpecialForm(form[i - 1]),
+						"messages": result
+					}
+				};
+			} else {
+				return {
+					"message": {
+						"extends": false,
+						"messages": result
+					}
+				};
+			}
 		} else if(form[0] === "&&" || form[0] === "and") {
 			return {
 				"and": convertArray(1)
@@ -117,10 +141,17 @@ function convertSpecialForm(form) {
 			return {
 				"or": convertArray(1)
 			};
+		} else if(form[0] === "delay") {
+			return {
+				"delay": convertSpecialForm(form[1])
+			};
 		} else if(form[0] === "++") {
 			return convertIncDec("+");
 		} else if(form[0] === "--") {
 			return convertIncDec("-");
+		} else if(form[0] === "op") {
+			addOperatorExtern(form[1], form[2], form[3]);
+			return true;
 		} else {
 			return convertArray(0);
 		}
@@ -130,6 +161,21 @@ function convertSpecialForm(form) {
 }
 
 var opop = null;
+function addOperatorExtern(precedence, operatorType, name) {
+	var command = {
+		"fx": "PostfixNonAssoc",
+		"fy": "Postfix",
+		"xf": "PrefixNonAssoc",
+		"yf": "Prefix",
+		"xfx": "InfixNonAssoc",
+		"yfx": "InfixLToR",
+		"xfy": "InfixRToL"
+	};
+	if(!command[operatorType]) {
+		throw new Error("invalid operator type");
+	}
+	addOperator(name, command[operatorType], precedence);
+}
 function addOperator(name, command, precedence) {
 	function binary(x, y) {
 		return [name, x, y];
@@ -161,7 +207,7 @@ function initOpop(func) {
 		addOperator(">"  , "InfixLToR"      , 2100);
 		addOperator("<=" , "InfixLToR"      , 2100);
 		addOperator(">=" , "InfixLToR"      , 2100);
-		addOperator("==" , "InfixLToR"      , 2000);
+		addOperator("="  , "InfixLToR"      , 2000);
 		addOperator("!=" , "InfixLToR"      , 2000);
 		addOperator("&&" , "InfixLToR"      , 1600);
 		addOperator("||" , "InfixLToR"      , 1500);
@@ -170,6 +216,10 @@ function initOpop(func) {
 		addOperator("and", "InfixLToR"      , 600);
 		addOperator("or" , "InfixLToR"      , 500);
 	}
+}
+
+function actionDot(match, inh, syn) {
+	return [syn, { q: inh }];
 }
 
 var commas = /[,;]|=>/;
@@ -181,9 +231,7 @@ var op = R.Yn(
 		initOpop(func);
 		return R.or(
 			R.lookahead(/[\+\-\*\/\$\^!#%&@<>:]+\(/).then(func),
-			R.then(parseOp).then(R.zeroOrMore(R.then(".").then(element, function(match, syn, inh) {
-				return ['.', inh, syn];
-			}))).action(function(attr) {
+			R.then(parseOp).then(R.zeroOrMore(R.then(".").then(element, actionDot))).action(function(attr) {
 				return convertSpecialForm(attr);
 			})
 		);
@@ -242,15 +290,16 @@ var op = R.Yn(
 		);
 	},
 	function(op, func, dot, element) {
-		return R.then(element).thenZeroOrMore(R.then(".").then(element, function(match, syn, inh) {
-			return ['.', inh, syn];
-		}));
+		return R.then(element).thenZeroOrMore(R.then(".").then(element, actionDot));
 	},
 	function(op, func, dot, element) {
 		return R.or(
 			R.then("true", function() { return true; }),
 			R.then("false", function() { return false; }),
 			R.real(),
+			R.then(/\'[^\']+\'/, function(match) {
+				return match.substring(1, match.length - 1);
+			}),
 			R.then(/[^ \t\n\+\-\*\/\$\^!#%&@<>\.,:;\(\)\{\}\[\]]+/, function(match) {
 				return match.replace(/[ \t\n]+$/, "");
 			}),
