@@ -164,6 +164,16 @@ function convertSpecialForm(form) {
                     "begin": convertSpecialForm(form[2])
                 }
             };
+        } else if(form[0] === "for") {
+            return {
+                "for": {
+                    "init": form[1],
+                    "initValue": convertSpecialForm(form[2]),
+                    "cond": convertSpecialForm(form[3]),
+                    "step": convertSpecialForm(form[4]),
+                    "begin": convertSpecialForm(form[5])
+                }
+            };
         } else {
             return convertArray(0);
         }
@@ -401,9 +411,7 @@ function initEval(koumeEval) {
                                                     begin: [
                                                         {
                                                             "if": {
-                                                                "cond": {
-                                                                    uq: "cond"
-                                                                },
+                                                                "cond": { uq: "cond" },
                                                                 "then": {
                                                                     "begin": [
                                                                         {
@@ -432,6 +440,66 @@ function initEval(koumeEval) {
             }
         },
         true
+    ]);
+
+    koumeEval([
+        {
+            defmacro: {
+                name: "for",
+                patterns: [
+                    {
+                        pattern: {
+                            init: "init",
+                            initValue: "initValue",
+                            cond: "cond",
+                            step: "step",
+                            begin: "begin"
+                        },
+                        begin: [
+                            {
+                                qq: {
+                                    "let": {
+                                        vars: {
+                                            uq: ["listToObject", ["list", "init", "initValue", { q: "\x01forResult" }, false]]
+                                        },
+                                        begin: [
+                                            {
+                                                "let": {
+                                                    name: "\x01forLoop",
+                                                    vars: {},
+                                                    begin: [
+                                                        {
+                                                            "if": {
+                                                                "cond": { uq: "cond" },
+                                                                "then": {
+                                                                    begin: [
+                                                                        {
+                                                                            "set": {
+                                                                                "\x01forResult": {
+                                                                                    uq: "begin"
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        { uq: "step" },
+                                                                        ["\x01forLoop"]
+                                                                    ]
+                                                                },
+                                                                "else": "\x01forResult"
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        false
     ]);
 }
 
