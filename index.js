@@ -157,6 +157,13 @@ function convertSpecialForm(form) {
         } else if(form[0] === "op") {
             addOperatorExtern(form[1], form[2], form[3]);
             return true;
+        } else if(form[0] === "while") {
+            return {
+                "while": {
+                    "cond": convertSpecialForm(form[1]),
+                    "begin": convertSpecialForm(form[2])
+                }
+            };
         } else {
             return convertArray(0);
         }
@@ -368,8 +375,69 @@ var op = R.Yn(
     }
 );
 
+function initEval(koumeEval) {
+    koumeEval([
+        {
+            defmacro: {
+                name: "while",
+                patterns: [
+                    {
+                        pattern: {
+                            cond: "cond",
+                            begin: "begin"
+                        },
+                        begin: [
+                            {
+                                qq: {
+                                    "let": {
+                                        vars: {
+                                            "\x01result": false
+                                        },
+                                        begin: [
+                                            {
+                                                "let": {
+                                                    name: "\x01loop",
+                                                    vars: {},
+                                                    begin: [
+                                                        {
+                                                            "if": {
+                                                                "cond": {
+                                                                    uq: "cond"
+                                                                },
+                                                                "then": {
+                                                                    "begin": [
+                                                                        {
+                                                                            "set": {
+                                                                                "\x01result": {
+                                                                                    uq: "begin"
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        ["\x01loop"]
+                                                                    ]
+                                                                },
+                                                                "else": "\x01result"
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        true
+    ]);
+}
+
 function createEval() {
     var koumeEval = Koume.createEval();
+    initEval(koumeEval);
     return function(aString) {
         var parsed = op.parse(aString);
         if(parsed) {
