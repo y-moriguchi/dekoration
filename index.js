@@ -16,10 +16,14 @@ function isArray(obj) {
     return Object.prototype.toString.call(obj) === '[object Array]';
 }
 
-function convertSpecialForm(form) {
+function convertSpecialForm(form, macroEnv, execEnv) {
     var result,
         resultLambda,
         i;
+
+    function walk(form) {
+        return convertSpecialForm(form, macroEnv, execEnv);
+    }
 
     function convertLet(beginIndex, letType) {
         var letPart = {},
@@ -27,11 +31,11 @@ function convertSpecialForm(form) {
             result = {},
             i;
         for(i = beginIndex + 1; i < form.length; i += 2) {
-            letPart[form[i - 1]] = convertSpecialForm(form[i]);
+            letPart[form[i - 1]] = walk(form[i]);
         }
         letClause = {
             "vars": letPart,
-            "begin": [convertSpecialForm(form[i - 1])]
+            "begin": [walk(form[i - 1])]
         };
         result[letType] = letClause;
         return result;
@@ -42,7 +46,18 @@ function convertSpecialForm(form) {
         return {
             "function": {
                 "args": args,
-                "begin": [convertSpecialForm(form[form.length - 1])]
+                "begin": [walk(form[form.length - 1])]
+            }
+        };
+    }
+
+    function convertLambdaRest(beginIndex) {
+        var args = form.slice(beginIndex, form.length - 2);
+        return {
+            "function": {
+                "args": args,
+                "rest": form[form.length - 2],
+                "begin": [walk(form[form.length - 1])]
             }
         };
     }
@@ -51,7 +66,7 @@ function convertSpecialForm(form) {
         var result = [],
             i;
         for(i = beginIndex; i < form.length; i++) {
-            result.push(convertSpecialForm(form[i]));
+            result.push(walk(form[i]));
         }
         return result;
     }
@@ -69,21 +84,66 @@ function convertSpecialForm(form) {
         }
     }
 
+    function convertQuasiQuote(quoted) {
+        var result,
+            i;
+        if(isArray(quoted)) {
+            if(quoted[0] === "uq") {
+                return walk(quoted[1]);
+            } else {
+                result = ["list"];
+                for(i = 0; i < quoted.length; i++) {
+                    result.push(convertQuasiQuote(quoted[i]));
+                }
+                return result;
+            }
+        } else {
+            return { "q": quoted };
+        }
+    }
+
+    function evaluateMacro(macroDef) {
+        var result,
+            args = {},
+            i;
+        function extractMacro(body) {
+            var result = [],
+                i;
+            if(isArray(body)) {
+                for(i = 0; i < body.length; i++) {
+                    result.push(extractMacro(body[i]));
+                }
+                return result;
+            } else if(args[body] !== undef) {
+                return ["q", args[body]];
+            } else {
+                return body;
+            }
+        }
+
+        for(i = 0; i < macroDef.args.length; i++) {
+            args[macroDef.args[i]] = form[i + 1];
+        }
+        result = extractMacro(macroDef.body);
+            console.log(result);
+        return execEnv(walk(result));
+    }
+
     if(isArray(form)) {
         if(form[0] === "if" || form[0] === "elseif") {
             result = {
                 "if": {
-                    "cond": convertSpecialForm(form[1]),
-                    "then": convertSpecialForm(form[2])
+                    "cond": walk(form[1]),
+                    "then": walk(form[2])
                 }
             };
             if(form[3]) {
-                result["if"]["else"] = convertSpecialForm(form[3]);
+                result["if"]["else"] = walk(form[3]);
             }
             return result;
         } else if(form[0] === "else") {
             return {
-                "begin": [convertSpecialForm(form[1])]
+                "begin": [walk(form[1])]
             }
         } else if(form[0] === "let") {
             return convertLet(1, "let");
@@ -102,31 +162,46 @@ function convertSpecialForm(form) {
             };
         } else if(form[0] === "lambda") {
             return convertLambda(1);
+        } else if(form[0] === "functionr") {
+            resultLambda = convertLambdaRest(2);
+            result = {};
+            result[form[1]] = resultLambda;
+            return {
+                "define": result
+            };
+        } else if(form[0] === "lambdar") {
+            return convertLambdaRest(1);
         } else if(form[0] === ":") {
             result = {};
-            result[form[1]] = convertSpecialForm(form[2]);
+            result[form[1]] = walk(form[2]);
             return {
                 "define": result
             };
         } else if(form[0] === ":=") {
             result = {};
-            result[form[1]] = convertSpecialForm(form[2]);
+            result[form[1]] = walk(form[2]);
             return {
                 "set": result
             };
-        } else if(form[0] === "begin") {
+        } else if(form[0] === "do" || form[0] === "begin") {
             return {
                 "begin": convertArray(1)
             };
+        } else if(form[0] === "q") {
+            return {
+                "q": form[1]
+            };
+        } else if(form[0] === "qq") {
+            return convertQuasiQuote(form[1]);
         } else if(form[0] === "message") {
             result = {};
             for(i = 2; i < form.length; i += 2) {
-                result[form[i - 1]] = convertSpecialForm(form[i]);
+                result[form[i - 1]] = walk(form[i]);
             }
             if(form[i - 1]) {
                 return {
                     "message": {
-                        "extends": convertSpecialForm(form[i - 1]),
+                        "extends": walk(form[i - 1]),
                         "messages": result
                     }
                 };
@@ -148,7 +223,7 @@ function convertSpecialForm(form) {
             };
         } else if(form[0] === "delay") {
             return {
-                "delay": convertSpecialForm(form[1])
+                "delay": walk(form[1])
             };
         } else if(form[0] === "++") {
             return convertIncDec("+");
@@ -160,20 +235,28 @@ function convertSpecialForm(form) {
         } else if(form[0] === "while") {
             return {
                 "while": {
-                    "cond": convertSpecialForm(form[1]),
-                    "begin": convertSpecialForm(form[2])
+                    "cond": walk(form[1]),
+                    "begin": walk(form[2])
                 }
             };
         } else if(form[0] === "for") {
             return {
                 "for": {
                     "init": form[1],
-                    "initValue": convertSpecialForm(form[2]),
-                    "cond": convertSpecialForm(form[3]),
-                    "step": convertSpecialForm(form[4]),
-                    "begin": convertSpecialForm(form[5])
+                    "initValue": walk(form[2]),
+                    "cond": walk(form[3]),
+                    "step": walk(form[4]),
+                    "begin": walk(form[5])
                 }
             };
+        } else if(form[0] === "defmacro") {
+            macroEnv[form[1]] = {
+                "args": form.slice(2, form.length - 1),
+                "body": form[form.length - 1]
+            }
+            return false;
+        } else if(macroEnv[form[0]]) {
+            return walk(evaluateMacro(macroEnv[form[0]]));
         } else {
             return convertArray(0);
         }
@@ -255,7 +338,7 @@ var op = R.Yn(
         return R.or(
             R.lookahead(/[\+\-\*\/\$\^!#%&@<>:]+\(/).then(func),
             R.then(parseOp).then(R.zeroOrMore(R.then(".").then(element, actionDot))).action(function(attr) {
-                return convertSpecialForm(attr);
+                return attr;
             })
         );
     },
@@ -271,9 +354,7 @@ var op = R.Yn(
         var funcDo = R.then("{").then(R.then(op).delimit(";", function(match, syn, inh) {
                 return inh.concat([syn]);
             }, []), function(match, syn, inh) {
-                return inh.concat({
-                    "begin": convertSpecialForm(syn)
-                });
+                return inh.concat([["do"].concat(syn)]);
             }
         ).then(R.maybe(";")).then("}");
         var postFuncElem = R.then(dot, function(match, syn, inh) {
@@ -359,9 +440,7 @@ var op = R.Yn(
                     result += ch;
                 }
             }
-            return {
-                "q": result
-            };
+            return ["q", result];
         }
         return R.or(
             R.then("true", function() { return true; }),
@@ -504,12 +583,13 @@ function initEval(koumeEval) {
 }
 
 function createEval() {
-    var koumeEval = Koume.createEval();
+    var koumeEval = Koume.createEval(),
+        macroEnv = {};
     initEval(koumeEval);
     return function(aString) {
         var parsed = op.parse(aString);
         if(parsed) {
-            return koumeEval([parsed.attribute]);
+            return koumeEval([convertSpecialForm(parsed.attribute, macroEnv, koumeEval)]);
         } else {
             throw new Error("Syntax error");
         }
