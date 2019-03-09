@@ -635,9 +635,11 @@ function initCodeEval(evalCode) {
         "        } else {" +
         "          error(\"Error: invalid message\")" +
         "        }" +
-        "      }" +
-        "    };" +
-        "    result" +
+        "      };" +
+        "      result" +
+        "    } elseif(msg === \"nullp\") {" +
+        "      base(\"nullp\")" +
+        "    }" +
         "  }" +
         "}");
 
@@ -646,7 +648,8 @@ function initCodeEval(evalCode) {
         "  createList(" +
         "    message(" +
         "      car => car," +
-        "      cdr => cdr" +
+        "      cdr => cdr," +
+        "      nullp => false" +
         "    )" +
         "  )" +
         "}");
@@ -657,7 +660,8 @@ function initCodeEval(evalCode) {
         "  createList(" +
         "    message(" +
         "      car => seq(index)," +
-        "      cdr => if(index < seq.length - 1, consseq(seq, index + 1), nil)" +
+        "      cdr => if(index < seq.length - 1, consseq(seq, index + 1), nil)," +
+        "      nullp => false" +
         "    )" +
         "  )" +
         "}");
@@ -669,7 +673,8 @@ function initCodeEval(evalCode) {
         "  createList(" +
         "    message(" +
         "      car => start," +
-        "      cdr => if(!end || start + step <= end, consrange(start + step, end, step), nil)" +
+        "      cdr => if(!end || start + step <= end, consrange(start + step, end, step), nil)," +
+        "      nullp => false" +
         "    )" +
         "  )" +
         "}");
@@ -677,7 +682,8 @@ function initCodeEval(evalCode) {
     evalCode(
         "nil:message(" +
         "  car => error(\"Error: nil\")," +
-        "  cdr => error(\"Error: nil\")" +
+        "  cdr => error(\"Error: nil\")," +
+        "  nullp => true" +
         ")");
 
     evalCode(
@@ -696,6 +702,19 @@ function initCodeEval(evalCode) {
         "    result := conspair(rest(i), result)" +
         "  };" +
         "  result" +
+        "}");
+
+    evalCode(
+        "function(consToArray; seq) {" +
+        "  result:#[];" +
+        "  loop(main; i => 0, seq => seq) {" +
+        "    if(seq.nullp) {" +
+        "      result" +
+        "    } else {" +
+        "      setprop(numberToString(i), result, seq.car);" +
+        "      main(i + 1, seq.cdr)" +
+        "    }" +
+        "  }" +
         "}");
 
     evalCode(
