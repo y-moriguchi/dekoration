@@ -71,7 +71,7 @@ function convertSpecialForm(form, macroEnv, execEnv) {
         return result;
     }
 
-    function convertIncDec(operator) {
+    function convertPreIncDec(operator) {
         var result = {};
         result[form[1]] = [operator, form[1], 1];
         return {
@@ -81,7 +81,27 @@ function convertSpecialForm(form, macroEnv, execEnv) {
                 },
                 form[1]
             ]
-        }
+        };
+    }
+
+    function convertPostIncDec(operator) {
+        var result = {},
+            resultLet = {},
+            gsym = gsymFunction();
+        result[form[1]] = [operator, form[1], 1];
+        resultLet = {
+            "let": {
+                "vars": {},
+                "begin": [
+                    {
+                        "set": result
+                    },
+                    gsym
+                ]
+            }
+        };
+        resultLet["let"].vars[gsym] = form[1];
+        return resultLet;
     }
 
     function convertQuasiQuote(quoted) {
@@ -148,7 +168,7 @@ function convertSpecialForm(form, macroEnv, execEnv) {
             return convertLet(1, "let");
         } else if(form[0] === "loop") {
             result = convertLet(2, "let");
-            result["name"] = form[1];
+            result["let"]["name"] = form[1];
             return result;
         } else if(form[0] === "letrec") {
             return convertLet(1, "letrec");
@@ -182,7 +202,7 @@ function convertSpecialForm(form, macroEnv, execEnv) {
             return {
                 "set": result
             };
-        } else if(form[0] === "do" || form[0] === "begin") {
+        } else if(form[0] === "begin") {
             return {
                 "begin": convertArray(1)
             };
@@ -224,10 +244,14 @@ function convertSpecialForm(form, macroEnv, execEnv) {
             return {
                 "delay": walk(form[1])
             };
-        } else if(form[0] === "++") {
-            return convertIncDec("+");
-        } else if(form[0] === "--") {
-            return convertIncDec("-");
+        } else if(form[0] === "prefixInc") {
+            return convertPreIncDec("+");
+        } else if(form[0] === "prefixDec") {
+            return convertPreIncDec("-");
+        } else if(form[0] === "postfixInc") {
+            return convertPostIncDec("+");
+        } else if(form[0] === "postfixDec") {
+            return convertPostIncDec("-");
         } else if(form[0] === "op") {
             addOperatorExtern(form[1], form[2], form[3]);
             return true;
@@ -281,12 +305,15 @@ function addOperatorExtern(precedence, operatorType, name) {
     addOperator(name, command[operatorType], precedence);
 }
 
-function addOperator(name, command, precedence) {
+function addOperator(name, command, precedence, formName) {
     function binary(x, y) {
-        return [name, x, y];
+        return [formName, x, y];
     }
     function unary(x) {
-        return [name, x];
+        return [formName, x];
+    }
+    if(!formName) {
+        formName = name;
     }
     opop["add" + command](name, precedence, command.startsWith("Infix") ? binary : unary);
 }
@@ -298,10 +325,10 @@ function initOpop(func) {
             actionId: function(x) { return x; },
             follow: /[,;\}\)\]\.]|=>|$/
         });
-        addOperator("++" , "PostfixNonAssoc", 2700);
-        addOperator("--" , "PostfixNonAssoc", 2700);
-        addOperator("++" , "PrefixNonAssoc" , 2600);
-        addOperator("--" , "PrefixNonAssoc" , 2600);
+        addOperator("++" , "PostfixNonAssoc", 2700, "postfixInc");
+        addOperator("--" , "PostfixNonAssoc", 2700, "postfixDec");
+        addOperator("++" , "PrefixNonAssoc" , 2600, "prefixInc");
+        addOperator("--" , "PrefixNonAssoc" , 2600, "prefixDec");
         addOperator("+"  , "Prefix"         , 2600);
         addOperator("-"  , "Prefix"         , 2600);
         addOperator("!"  , "Prefix"         , 2600);
@@ -338,6 +365,8 @@ var op = R.Yn(
         initOpop(func);
         return R.or(
             R.lookahead(/[\+\-\*\/\$\^!#%&@<>:]+\(/).then(func),
+            R.lookahead(R.then(dot).then("(").then(")")).then(func),
+            R.lookahead(R.then("(").then(func).then(")").then("(")).then(func),
             R.then(parseOp).then(R.zeroOrMore(R.then(".").then(element, actionDot))).action(function(attr) {
                 return attr;
             })
@@ -346,16 +375,19 @@ var op = R.Yn(
 
     function(op, func, dot, element) {
         var funcElem = R.then(dot).then(
-            R.then("(").then(R.then(op).delimit(commas, function(match, syn, inh) {
-                return inh.concat([syn]);
-            }, [])).then(")"), function(match, syn, inh) {
+            R.or(
+                R.then("(").then(")").action(function(attr) { return []; }),
+                R.then("(").then(R.then(op).delimit(commas, function(match, syn, inh) {
+                    return inh.concat([syn]);
+                }, [])).then(")")
+            ), function(match, syn, inh) {
                 return [inh].concat(syn);
             }
         );
         var funcDo = R.then("{").then(R.then(op).delimit(";", function(match, syn, inh) {
                 return inh.concat([syn]);
             }, []), function(match, syn, inh) {
-                return inh.concat([["do"].concat(syn)]);
+                return inh.concat([["begin"].concat(syn)]);
             }
         ).then(R.maybe(";")).then("}");
         var postFuncElem = R.then(dot, function(match, syn, inh) {
@@ -374,6 +406,7 @@ var op = R.Yn(
                     return inh.inh.concat([syn.syn]);
                 }
             ),
+            R.then("(").then(")").action(function(attr) { return [attr] }),
             R.cond(function() { return true; }).action(function(attr) { return attr.inh.concat([attr.syn]) })
         );
         var postFunc = R.or(
@@ -459,10 +492,7 @@ var op = R.Yn(
                 return match.replace(/[ \t\n]+$/, "");
             }),
             R.then(/[\+\-\*\/\$\^!#%&@<>:]+/, function(match) { return match; }),
-            R.then("[").then(R.then(op).delimit(",", function(match, syn, inh) {
-                return inh.concat([syn]);
-            }, ["list"])).then("]"),
-            R.then("(").then(op).then(")")
+            R.then("[").then(op).then("]")
         );
     }
 );
@@ -638,9 +668,36 @@ function initCodeEval(evalCode) {
         "  };" +
         "  result" +
         "}");
+
+    evalCode(
+        "defmacro(do; body, cond) {" +
+        "  if(cond(0) === \"while\") {" +
+        "    let(lp => gsym(), result => gsym()) {" +
+        "      qq(" +
+        "        let(uq(result) => false) {" +
+        "          loop(uq(lp)) {" +
+        "            uq(result) := uq(body);" +
+        "            if(uq(cond(1)), [uq(lp)](), uq(result))" +
+        "          }" +
+        "        }" +
+        "      )" +
+        "    }" +
+        "  } else {" +
+        "    error(\"Invalid do\")" +
+        "  }" +
+        "}");
 }
 
+function createGsymFunction() {
+    var count = 1;
+    return function() {
+        return "\x01\x01\x01" + (count++);
+    };
+}
+var gsymFunction = createGsymFunction();
+
 function createBuiltIn(bindBuiltIn) {
+
     bindBuiltIn("!", function(arg) {
         return arg === false ? true : false;
     });
@@ -652,6 +709,8 @@ function createBuiltIn(bindBuiltIn) {
     bindBuiltIn("!==", function(arg1, arg2) {
         return arg1 !== arg2;
     });
+
+    bindBuiltIn("gsym", gsymFunction);
 }
 
 function createEval() {
