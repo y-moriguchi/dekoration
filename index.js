@@ -125,7 +125,6 @@ function convertSpecialForm(form, macroEnv, execEnv) {
             args[macroDef.args[i]] = form[i + 1];
         }
         result = extractMacro(macroDef.body);
-            console.log(result);
         return execEnv(walk(result));
     }
 
@@ -305,6 +304,7 @@ function initOpop(func) {
         addOperator("--" , "PrefixNonAssoc" , 2600);
         addOperator("+"  , "Prefix"         , 2600);
         addOperator("-"  , "Prefix"         , 2600);
+        addOperator("!"  , "Prefix"         , 2600);
         addOperator("*"  , "InfixLToR"      , 2400);
         addOperator("/"  , "InfixLToR"      , 2400);
         addOperator("+"  , "InfixLToR"      , 2300);
@@ -315,12 +315,13 @@ function initOpop(func) {
         addOperator(">=" , "InfixLToR"      , 2100);
         addOperator("="  , "InfixLToR"      , 2000);
         addOperator("!=" , "InfixLToR"      , 2000);
+        addOperator("===", "InfixLToR"      , 2000);
+        addOperator("!==", "InfixLToR"      , 2000);
         addOperator("&&" , "InfixLToR"      , 1600);
         addOperator("||" , "InfixLToR"      , 1500);
         addOperator(":"  , "InfixNonAssoc"  , 1300);
         addOperator(":=" , "InfixNonAssoc"  , 1300);
-        addOperator("and", "InfixLToR"      , 600);
-        addOperator("or" , "InfixLToR"      , 500);
+        addOperator("$"  , "InfixRToL"      ,  500);
     }
 }
 
@@ -376,7 +377,9 @@ var op = R.Yn(
             R.cond(function() { return true; }).action(function(attr) { return attr.inh.concat([attr.syn]) })
         );
         var postFunc = R.or(
-            R.then(postFuncElem).then(funcDo).action(changeAdd),
+            R.then(func, function(match, syn, inh) {
+                return inh.concat([syn]);
+            }),
             R.maybe(postFuncElem)
         );
         function toList(elem) {
@@ -582,11 +585,79 @@ function initEval(koumeEval) {
     ]);
 }
 
+function initCodeEval(evalCode) {
+    evalCode(
+        "function(createList; base) {" +
+        "  lambda(msg) {" +
+        "    result:base;" +
+        "    if(eqv(substring(msg, 0, 1), \"c\")) {" +
+        "      for(i => 1; i < length(msg) - 1; i++) {" +
+        "        if(eqv(substring(msg, i, i + 1), \"a\")) {" +
+        "          result := result.car" +
+        "        } elseif(eqv(substring(msg, i, i + 1), \"d\")) {" +
+        "          result := result.cdr" +
+        "        } else {" +
+        "          error(\"Error: invalid message\")" +
+        "        }" +
+        "      }" +
+        "    };" +
+        "    result" +
+        "  }" +
+        "}");
+
+    evalCode(
+        "function(conspair; car, cdr) {" +
+        "  createList(" +
+        "    message(" +
+        "      car => car," +
+        "      cdr => cdr" +
+        "    )" +
+        "  )" +
+        "}");
+
+    evalCode(
+        "nil:message(" +
+        "  car => error(\"Error: nil\")," +
+        "  cdr => error(\"Error: nil\")" +
+        ")");
+
+    evalCode(
+        "functionr('$'; rest) {" +
+        "  result:rest(rest.length - 1);" +
+        "  for(i => rest.length - 2; i >= 0; i--) {" +
+        "    result := conspair(rest(i), result)" +
+        "  };" +
+        "  result" +
+        "}");
+
+    evalCode(
+        "functionr('#'; rest) {" +
+        "  result:nil;" +
+        "  for(i => rest.length - 1; i >= 0; i--) {" +
+        "    result := conspair(rest(i), result)" +
+        "  };" +
+        "  result" +
+        "}");
+}
+
+function createBuiltIn(bindBuiltIn) {
+    bindBuiltIn("!", function(arg) {
+        return arg === false ? true : false;
+    });
+
+    bindBuiltIn("===", function(arg1, arg2) {
+        return arg1 === arg2;
+    });
+
+    bindBuiltIn("!==", function(arg1, arg2) {
+        return arg1 !== arg2;
+    });
+}
+
 function createEval() {
-    var koumeEval = Koume.createEval(),
+    var koumeEval = Koume.createEval(createBuiltIn),
         macroEnv = {};
-    initEval(koumeEval);
-    return function(aString) {
+    function evalCode(aString) {
         var parsed = op.parse(aString);
         if(parsed) {
             return koumeEval([convertSpecialForm(parsed.attribute, macroEnv, koumeEval)]);
@@ -594,6 +665,10 @@ function createEval() {
             throw new Error("Syntax error");
         }
     }
+
+    initEval(koumeEval);
+    initCodeEval(evalCode);
+    return evalCode;
 }
 
 module.exports = createEval();
