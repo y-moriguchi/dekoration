@@ -346,9 +346,9 @@ function initOpop(func) {
         addOperator("!==", "InfixLToR"      , 2000);
         addOperator("&&" , "InfixLToR"      , 1600);
         addOperator("||" , "InfixLToR"      , 1500);
+        addOperator("$"  , "InfixRToL"      , 1400);
         addOperator(":"  , "InfixNonAssoc"  , 1300);
         addOperator(":=" , "InfixNonAssoc"  , 1300);
-        addOperator("$"  , "InfixRToL"      ,  500);
     }
 }
 
