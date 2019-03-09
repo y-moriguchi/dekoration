@@ -491,6 +491,12 @@ var op = R.Yn(
             R.then(/[^ \t\n\+\-\*\/\$\^!#%&@<>\.,:;\(\)\{\}\[\]]+/, function(match) {
                 return match.replace(/[ \t\n]+$/, "");
             }),
+            R.then("#[").then(R.or(
+                R.then("]").action(function() { return [] }),
+                R.then(R.then(op).delimit(",", function(match, syn, inh) {
+                    return inh.concat([syn]);
+                }, [])).then("]")
+            )).action(function(attr) { return ["q", attr]; }),
             R.then(/[\+\-\*\/\$\^!#%&@<>:]+/, function(match) { return match; }),
             R.then("[").then(op).then("]")
         );
@@ -641,6 +647,29 @@ function initCodeEval(evalCode) {
         "    message(" +
         "      car => car," +
         "      cdr => cdr" +
+        "    )" +
+        "  )" +
+        "}");
+
+    evalCode(
+        "functionr(consseq; seq; rest) {" +
+        "  index:if(rest.length < 1, 0, rest(0));" +
+        "  createList(" +
+        "    message(" +
+        "      car => seq(index)," +
+        "      cdr => if(index < seq.length - 1, consseq(seq, index + 1), nil)" +
+        "    )" +
+        "  )" +
+        "}");
+
+    evalCode(
+        "functionr(consrange; start; rest) {" +
+        "  end:if(rest.length < 1, false, rest(0));" +
+        "  step:if(rest.length < 2, 1, rest(1));" +
+        "  createList(" +
+        "    message(" +
+        "      car => start," +
+        "      cdr => if(!end || start + step <= end, consrange(start + step, end, step), nil)" +
         "    )" +
         "  )" +
         "}");
