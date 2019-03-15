@@ -46,8 +46,6 @@ function createCountParentheses() {
                     countBraces--;
                 } else if(ch === "\"") {
                     state = "DOUBLEQUOTE";
-                } else if(ch === "'") {
-                    state = "SINGLEQUOTE";
                 }
                 break;
             case "DOUBLEQUOTE":
@@ -59,16 +57,6 @@ function createCountParentheses() {
                 break;
             case "DQ_ESCAPE":
                 state = "DOUBLEQUOTE";
-                break;
-            case "SINGLEQUOTE":
-                if(ch === "\\") {
-                    state = "SQ_ESCAPE";
-                } else if(ch === "\'") {
-                    state = "INIT";
-                }
-                break;
-            case "SQ_ESCAPE":
-                state = "SINGLEQUOTE";
                 break;
             }
         }

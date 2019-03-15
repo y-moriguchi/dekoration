@@ -106,14 +106,26 @@ function convertSpecialForm(form, macroEnv, execEnv) {
 
     function convertQuasiQuote(quoted) {
         var result,
-            i;
+            walked,
+            i,
+            j;
         if(isArray(quoted)) {
             if(quoted[0] === "uq") {
                 return walk(quoted[1]);
             } else {
                 result = ["list"];
                 for(i = 0; i < quoted.length; i++) {
-                    result.push(convertQuasiQuote(quoted[i]));
+                    if(isArray(quoted[i]) && quoted[i][0] === "uqs" && isArray(quoted[i][1])) {
+                        walked = quoted[i][1];
+                        if(walked[0] === "\x01q") {
+                            walked = walked[1];
+                        }
+                        for(j = 0; j < walked.length; j++) {
+                            result.push(convertQuasiQuote(walked[j]));
+                        }
+                    } else {
+                        result.push(convertQuasiQuote(quoted[i]));
+                    }
                 }
                 return result;
             }
@@ -135,7 +147,7 @@ function convertSpecialForm(form, macroEnv, execEnv) {
                 }
                 return result;
             } else if(args[body] !== undef) {
-                return ["q", args[body]];
+                return ["\x01q", args[body]];
             } else {
                 return body;
             }
@@ -143,6 +155,9 @@ function convertSpecialForm(form, macroEnv, execEnv) {
 
         for(i = 0; i < macroDef.args.length; i++) {
             args[macroDef.args[i]] = form[i + 1];
+        }
+        if(macroDef.rest) {
+            args[macroDef.rest] = form.slice(i + 1, form.length);
         }
         result = extractMacro(macroDef.body);
         return execEnv(walk(result));
@@ -206,7 +221,7 @@ function convertSpecialForm(form, macroEnv, execEnv) {
             return {
                 "begin": convertArray(1)
             };
-        } else if(form[0] === "q") {
+        } else if(form[0] === "q" || form[0] === "\x01q") {
             return {
                 "q": form[1]
             };
@@ -232,11 +247,11 @@ function convertSpecialForm(form, macroEnv, execEnv) {
                     }
                 };
             }
-        } else if(form[0] === "&&" || form[0] === "and") {
+        } else if(form[0] === "&&") {
             return {
                 "and": convertArray(1)
             };
-        } else if(form[0] === "||" || form[0] === "or") {
+        } else if(form[0] === "||") {
             return {
                 "or": convertArray(1)
             };
@@ -275,6 +290,13 @@ function convertSpecialForm(form, macroEnv, execEnv) {
         } else if(form[0] === "defmacro") {
             macroEnv[form[1]] = {
                 "args": form.slice(2, form.length - 1),
+                "body": form[form.length - 1]
+            }
+            return false;
+        } else if(form[0] === "defmacror") {
+            macroEnv[form[1]] = {
+                "args": form.slice(2, form.length - 2),
+                "rest": form[form.length - 2],
                 "body": form[form.length - 1]
             }
             return false;
@@ -346,7 +368,6 @@ function initOpop(func) {
         addOperator("!==", "InfixLToR"      , 2000);
         addOperator("&&" , "InfixLToR"      , 1600);
         addOperator("||" , "InfixLToR"      , 1500);
-        addOperator("$"  , "InfixRToL"      , 1400);
         addOperator(":"  , "InfixNonAssoc"  , 1300);
         addOperator(":=" , "InfixNonAssoc"  , 1300);
     }
@@ -482,8 +503,11 @@ var op = R.Yn(
             R.then("true", function() { return true; }),
             R.then("false", function() { return false; }),
             R.real(),
-            R.then(/\'[^\']+\'/, function(match) {
-                return match.substring(1, match.length - 1);
+            R.then(/`.+?(?=[\s\(\)\[\]\{\},;]|=>)/, function(match) {
+                return match.substring(1, match.length);
+            }),
+            R.then(/\'.+?(?=[\s\(\)\[\]\{\},;]|=>)/, function(match) {
+                return convertStringLiteral(match.substring(1, match.length));
             }),
             R.then(/\"(\\[\s\S]|[^\"])*\"/, function(match) {
                 return convertStringLiteral(match.substring(1, match.length - 1));
@@ -626,8 +650,8 @@ function initCodeEval(evalCode) {
         "function(createList; base) {" +
         "  lambda(msg) {" +
         "    result:base;" +
-        "    if(eqv(substring(msg, 0, 1), \"c\")) {" +
-        "      for(i => 1; i < length(msg) - 1; i++) {" +
+        "    if(eqv(msg(0), \"c\") || eqv(msg(msg.length - 1), \"r\")) {" +
+        "      for(i => length(msg) - 2; i >= 1; i--) {" +
         "        if(eqv(substring(msg, i, i + 1), \"a\")) {" +
         "          result := result.car" +
         "        } elseif(eqv(substring(msg, i, i + 1), \"d\")) {" +
@@ -687,7 +711,7 @@ function initCodeEval(evalCode) {
         ")");
 
     evalCode(
-        "functionr('$'; rest) {" +
+        "functionr(`$; rest) {" +
         "  result:rest(rest.length - 1);" +
         "  for(i => rest.length - 2; i >= 0; i--) {" +
         "    result := conspair(rest(i), result)" +
@@ -696,7 +720,7 @@ function initCodeEval(evalCode) {
         "}");
 
     evalCode(
-        "functionr('#'; rest) {" +
+        "functionr(`#; rest) {" +
         "  result:nil;" +
         "  for(i => rest.length - 1; i >= 0; i--) {" +
         "    result := conspair(rest(i), result)" +
