@@ -9,8 +9,11 @@
  */
 "use strict";
 
-const parser = require("./index.js");
+const parser = require("./index.js")({
+    load: loadFunction
+});
 const readline = require("readline");
+const fs = require("fs");
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -64,6 +67,17 @@ function createCountParentheses() {
     }
 }
 
+function loadFunction(filename) {
+    var source;
+    try {
+        source = fs.readFileSync(filename, { encoding: "utf-8" });
+    } catch(e) {
+        throw new Error("Cannot open file " + filename);
+    }
+    parser(source);
+    return false;
+}
+
 function repl() {
     const countParentheses = createCountParentheses();
     let input = "";
@@ -92,4 +106,27 @@ function repl() {
     return next(PROMPT1);
 }
 
-repl();
+function main() {
+    var source;
+    function loadSource(filename) {
+        try {
+            source = fs.readFileSync(filename, { encoding: "utf-8" });
+        } catch(e) {
+            console.error("Cannot open file " + filename);
+            process.exit(2);
+        }
+        parser(source);
+    }
+
+    if(process.argv.length <= 2) {
+        repl();
+    } else if(process.argv[2] === "-l") {
+        loadSource(process.argv[3]);
+        repl();
+    } else {
+        loadSource(process.argv[2]);
+        process.exit(0);
+    }
+}
+
+main();

@@ -1,0 +1,38 @@
+{
+  "name": "dekoration",
+  "version": "0.0.0",
+  "description": "A programming language",
+  "main": "index.js",
+  "bin": {
+    "dekoration": "./app.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y-moriguchi/dekoration.git"
+  },
+  "keywords": [
+    "dekoration",
+    "language"
+  ],
+  "files": [
+    "README.md",
+    "app.js",
+    "index.js",
+    "package.json",
+    "test.js"
+  ],
+  "author": "Yuichiro MORIGUCHI",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/y-moriguchi/dekoration/issues"
+  },
+  "homepage": "https://github.com/y-moriguchi/dekoration#readme",
+  "dependencies": {
+    "kalimotxo": "0.0.4",
+    "koume": "^0.1.1",
+    "rena-js": "0.0.1"
+  }
+}

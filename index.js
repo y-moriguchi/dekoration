@@ -768,26 +768,36 @@ function createGsymFunction() {
 }
 var gsymFunction = createGsymFunction();
 
-function createBuiltIn(bindBuiltIn) {
+function createCreateBuiltIn(option) {
+    var opt = option || {},
+        loadFunc;
+    function defaultLoad() {
+        throw new Error("Cannot load in this environment");
+    }
+    function createBuiltIn(bindBuiltIn) {
+        bindBuiltIn("!", function(arg) {
+            return arg === false ? true : false;
+        });
 
-    bindBuiltIn("!", function(arg) {
-        return arg === false ? true : false;
-    });
+        bindBuiltIn("===", function(arg1, arg2) {
+            return arg1 === arg2;
+        });
 
-    bindBuiltIn("===", function(arg1, arg2) {
-        return arg1 === arg2;
-    });
+        bindBuiltIn("!==", function(arg1, arg2) {
+            return arg1 !== arg2;
+        });
 
-    bindBuiltIn("!==", function(arg1, arg2) {
-        return arg1 !== arg2;
-    });
-
-    bindBuiltIn("gsym", gsymFunction);
+        bindBuiltIn("gsym", gsymFunction);
+        bindBuiltIn("load", loadFunc);
+    }
+    loadFunc = opt.load || defaultLoad;
+    return createBuiltIn;
 }
 
-function createEval() {
-    var koumeEval = Koume.createEval(createBuiltIn),
-        macroEnv = {};
+function createEval(option) {
+    var koumeEval = Koume.createEval(createCreateBuiltIn(option)),
+        macroEnv = {},
+        me;
     function evalCode(aString) {
         var parsed = op.parse(aString);
         if(parsed) {
@@ -802,4 +812,4 @@ function createEval() {
     return evalCode;
 }
 
-module.exports = createEval();
+module.exports = createEval;
