@@ -67,10 +67,24 @@ function createCountParentheses() {
     }
 }
 
+function removeComment(source) {
+    const regex = /("(?:[^\\"]|\\[\s\S])*")|(\/\/.*(?=\r\n|\n|\r))|(\/\*[\s\S]*?\*\/)/g;
+    const removed = source.replace(regex, function(match, dq, lineComment, comment) {
+        if(dq) {
+            return dq;
+        } else if(lineComment) {
+            return "";
+        } else if(comment) {
+            return " ";
+        }
+    });
+    return removed;
+}
+
 function loadFunction(filename) {
-    var source;
+    let source;
     try {
-        source = fs.readFileSync(filename, { encoding: "utf-8" });
+        source = removeComment(fs.readFileSync(filename, { encoding: "utf-8" }));
     } catch(e) {
         throw new Error("Cannot open file " + filename);
     }
@@ -107,10 +121,10 @@ function repl() {
 }
 
 function main() {
-    var source;
     function loadSource(filename) {
+        let source;
         try {
-            source = fs.readFileSync(filename, { encoding: "utf-8" });
+            source = removeComment(fs.readFileSync(filename, { encoding: "utf-8" }));
         } catch(e) {
             console.error("Cannot open file " + filename);
             process.exit(2);
