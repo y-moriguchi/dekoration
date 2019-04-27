@@ -380,15 +380,22 @@ function actionDot(match, inh, syn) {
 var commas = /[,;]|=>/;
 var op = R.Yn(
     function(op, func, dot, element) {
+        var dotElement = R.then(element, actionDot),
+            dotCall,
+            dotCall0;
         function parseOp(match, index) {
             return opop.parse(match, index);
         }
+        dotCall = R.then("(").action(function(attr) { return [attr]; }).then(R.delimit(op, commas, function(match, syn, inh) {
+            return inh.concat([syn]);
+        })).then(")");
+        dotCall0 = R.then("(").then(")").action(function(attr) { return [attr]; });
         initOpop(func);
         return R.or(
             R.lookahead(/[\+\-\*\/\$\^!#%&@<>:]+\(/).then(func),
             R.lookahead(R.then(dot).then("(").then(")")).then(func),
             R.lookahead(R.then("(").then(func).then(")").then("(")).then(func),
-            R.then(parseOp).then(R.zeroOrMore(R.then(".").then(element, actionDot))).action(function(attr) {
+            R.then(parseOp).then(R.zeroOrMore(R.then(".").then(R.or(dotCall0, dotCall, dotElement)))).action(function(attr) {
                 return attr;
             })
         );
@@ -749,7 +756,7 @@ function initCodeEval(evalCode) {
         "        let(uq(result) => false) {" +
         "          loop(uq(lp)) {" +
         "            uq(result) := uq(body);" +
-        "            if(uq(cond(1)), [uq(lp)](), uq(result))" +
+        "            if(uq(cond(1)), uq(lp)(), uq(result))" +
         "          }" +
         "        }" +
         "      )" +
@@ -794,12 +801,23 @@ function createCreateBuiltIn(option) {
     return createBuiltIn;
 }
 
+function insertCallDot(aProgram) {
+    return aProgram.replace(/("(?:\\[\s\S]|[^"\\])*")|\)\(/g, function(match, dq, paren) {
+        if(dq) {
+            return dq;
+        } else {
+            return ").("
+        }
+    });
+}
+
 function createEval(option) {
     var koumeEval = Koume.createEval(createCreateBuiltIn(option)),
         macroEnv = {},
         me;
     function evalCode(aString) {
-        var parsed = op.parse(aString);
+        var aPreprocessed = insertCallDot(aString),
+            parsed = op.parse(aPreprocessed);
         if(parsed) {
             return koumeEval([convertSpecialForm(parsed.attribute, macroEnv, koumeEval)]);
         } else {
