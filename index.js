@@ -7,10 +7,10 @@
  * http://opensource.org/licenses/mit-license.php
  */
 var undef = void 0;
-var R = require("rena-js").clone();
+var Rena = require("rena2");
 var K = require("kalimotxo");
 var Koume = require("koume");
-R.ignoreDefault(/[ \t\n]+/);
+var R = Rena({ ignore: /[ \t\n]+/ });
 
 function isArray(obj) {
     return Object.prototype.toString.call(obj) === '[object Array]';
@@ -305,6 +305,8 @@ function convertSpecialForm(form, macroEnv, execEnv) {
         } else {
             return convertArray(0);
         }
+    } else if(form === void 0) {
+        throw new Error("Syntax Error");
     } else {
         return form;
     }
@@ -373,77 +375,112 @@ function initOpop(func) {
     }
 }
 
-function actionDot(match, inh, syn) {
-    return [syn, { q: inh }];
+function actionDot(match, syn, inh) {
+    return [inh, { q: syn }];
 }
 
 var commas = /[,;]|=>/;
-var op = R.Yn(
+var op = R.letrec(
     function(op, func, dot, element) {
-        var dotElement = R.then(element, actionDot),
+        var dotElement = R.action(element, actionDot),
             dotCall,
             dotCall0;
         function parseOp(match, index) {
-            return opop.parse(match, index);
+            var result = opop.parse(match, index);
+            return {
+                match: result.match,
+                lastIndex: result.lastIndex,
+                attr: result.attribute
+            };
         }
-        dotCall = R.then("(").action(function(attr) { return [attr]; }).then(R.delimit(op, commas, function(match, syn, inh) {
-            return inh.concat([syn]);
-        })).then(")");
-        dotCall0 = R.then("(").then(")").action(function(attr) { return [attr]; });
-        initOpop(func);
+        dotCall = R.then(
+            R.action("(", function(match, syn, attr) { return [attr]; }),
+            op,
+            R.zeroOrMore(R.action(R.then(commas, op), function(match, syn, inh) {
+                return inh.concat([syn]);
+            })),
+            ")");
+        dotCall0 = R.then("(", R.action(")", function(match, syn, attr) { return [attr]; }));
+        initOpop(function(match, index, attr) {
+            var result = func(match, index, attr);
+            return {
+                match: result.match,
+                lastIndex: result.lastIndex,
+                attribute: result.attr
+            };
+        });
         return R.or(
-            R.lookahead(/[\+\-\*\/\$\^!#%&@<>:]+\(/).then(func),
-            R.lookahead(R.then(dot).then("(").then(")")).then(func),
-            R.lookahead(R.then("(").then(func).then(")").then("(")).then(func),
-            R.then(parseOp).then(R.zeroOrMore(R.then(".").then(R.or(dotCall0, dotCall, dotElement)))).action(function(attr) {
+            R.then(R.lookahead(/[\+\-\*\/\$\^!#%&@<>:]+\(/), func),
+            R.then(R.lookahead(R.then(dot, "(", ")")), func),
+            R.then(R.lookahead(R.then("(", func, ")", "(")), func),
+            R.then(parseOp, R.zeroOrMore(R.then(".", R.or(dotCall0, dotCall, dotElement))), R.action("", function(match, syn, attr) {
                 return attr;
-            })
+            }))
         );
     },
 
     function(op, func, dot, element) {
-        var funcElem = R.then(dot).then(
-            R.or(
-                R.then("(").then(")").action(function(attr) { return []; }),
-                R.then("(").then(R.then(op).delimit(commas, function(match, syn, inh) {
-                    return inh.concat([syn]);
-                }, [])).then(")")
+        var funcElem = R.then(
+            dot,
+            R.action(R.or(
+                R.then("(", R.action(")", function(match, syn, attr) { return []; })),
+                R.then(
+                    "(",
+                    R.action(op, function(match, syn, inh) { return [syn]; }),
+                    R.zeroOrMore(R.action(R.then(commas, op), function(match, syn, inh) {
+                        return inh.concat([syn]);
+                    })),
+                    ")")
             ), function(match, syn, inh) {
                 return [inh].concat(syn);
-            }
+            })
         );
-        var funcDo = R.then("{").then(R.then(op).delimit(";", function(match, syn, inh) {
-                return inh.concat([syn]);
-            }, []), function(match, syn, inh) {
-                return inh.concat([["begin"].concat(syn)]);
-            }
-        ).then(R.maybe(";")).then("}");
-        var postFuncElem = R.then(dot, function(match, syn, inh) {
-            return {
-                inh: inh,
-                syn: [syn]
-            };
-        }).or(
-            R.then(
-                R.then("(").then(R.then(op).delimit(commas, function(match, syn, inh) {
-                    return {
-                        inh: inh.inh,
-                        syn: inh.syn.concat([syn])
-                    };
-                })).then(")"), function(match, syn, inh) {
-                    return inh.inh.concat([syn.syn]);
-                }
+        var funcDo = R.then(
+            "{",
+            R.action(
+                R.then(
+                    R.action(op, function(match, syn, inh) { return [syn]; }),
+                    R.zeroOrMore(R.action(R.then(";", op), function(match, syn, inh) {
+                        return inh.concat([syn]);
+                    }))
+                ), function(match, syn, inh) {
+                    return inh.concat([["begin"].concat(syn)]);
+                }),
+            R.maybe(";"),
+            "}");
+        var postFuncElem = R.then(
+            R.action(dot, function(match, syn, inh) {
+                return {
+                    inh: inh,
+                    syn: [syn]
+                };
+            }),
+            R.or(
+                R.then(
+                    "(",
+                    op,
+                    R.zeroOrMore(R.action(R.then(op, commas), function(match, syn, inh) {
+                        return {
+                            inh: inh.inh,
+                            syn: inh.syn.concat([syn])
+                        };
+                    })),
+                    ")",
+                    R.action("", function(match, syn, inh) {
+                        return inh.inh.concat([syn.syn]);
+                    })
+                ),
+                R.then("(", ")", R.action("", function(match, syn, attr) { return [attr] }))
             ),
-            R.then("(").then(")").action(function(attr) { return [attr] }),
-            R.cond(function() { return true; }).action(function(attr) { return attr.inh.concat([attr.syn]) })
+            R.action("", function(match, syn, attr) { return attr.inh.concat([attr.syn]) })
         );
         var postFunc = R.or(
-            R.then(func, function(match, syn, inh) {
+            R.action(func, function(match, syn, inh) {
                 return inh.concat([syn]);
             }),
             R.maybe(postFuncElem)
         );
-        function toList(elem) {
+        function toList(match, syn, elem) {
             return [elem];
         }
         function changeAdd(anArray) {
@@ -452,15 +489,15 @@ var op = R.Yn(
             return anArray.slice(0, anArray.length - 2).concat([arrayToAdd.concat(lastElem)]);
         }
         return R.or(
-            R.then(funcElem).then(funcDo).then(postFunc),
-            R.then(funcElem),
-            R.then(dot).action(toList).then(funcDo).then(postFunc),
-            R.then(dot)
+            R.then(funcElem, funcDo, postFunc),
+            funcElem,
+            R.then(dot, R.action("", toList), funcDo, postFunc),
+            dot
         );
     },
 
     function(op, func, dot, element) {
-        return R.then(element).thenZeroOrMore(R.then(".").then(element, actionDot));
+        return R.then(element, R.zeroOrMore(R.action(R.then(".", element), actionDot)));
     },
 
     function(op, func, dot, element) {
@@ -491,6 +528,7 @@ var op = R.Yn(
                 return matched.charAt(i + 1);
             }
         }
+
         function convertStringLiteral(matched) {
             var i,
                 ch,
@@ -506,30 +544,37 @@ var op = R.Yn(
             }
             return ["q", result];
         }
+
         return R.or(
-            R.then("true", function() { return true; }),
-            R.then("false", function() { return false; }),
+            R.action("true", function() { return true; }),
+            R.action("false", function() { return false; }),
             R.real(),
-            R.then(/`.+?(?=[\s\(\)\[\]\{\},;]|=>)/, function(match) {
+            R.action(/`.+?(?=[\s\(\)\[\]\{\},;]|=>)/, function(match) {
                 return match.substring(1, match.length);
             }),
-            R.then(/\'.+?(?=[\s\(\)\[\]\{\},;]|=>)/, function(match) {
+            R.action(/\'.+?(?=[\s\(\)\[\]\{\},;]|=>)/, function(match) {
                 return convertStringLiteral(match.substring(1, match.length));
             }),
-            R.then(/\"(\\[\s\S]|[^\"])*\"/, function(match) {
+            R.action(/\"(\\[\s\S]|[^\"])*\"/, function(match) {
                 return convertStringLiteral(match.substring(1, match.length - 1));
             }),
-            R.then(/[^ \t\n\+\-\*\/\$\^!#%&@<>\.,:;\(\)\{\}\[\]]+/, function(match) {
+            R.action(/[^ \t\n\+\-\*\/\$\^!#%&@<>\.,:;\(\)\{\}\[\]]+/, function(match) {
                 return match.replace(/[ \t\n]+$/, "");
             }),
-            R.then("#[").then(R.or(
-                R.then("]").action(function() { return [] }),
-                R.then(R.then(op).delimit(",", function(match, syn, inh) {
-                    return inh.concat([syn]);
-                }, [])).then("]")
-            )).action(function(attr) { return ["q", attr]; }),
-            R.then(/[\+\-\*\/\$\^!#%&@<>:]+/, function(match) { return match; }),
-            R.then("[").then(op).then("]")
+            R.then("#[",
+                R.or(
+                    R.action("]", function() { return [] }),
+                    R.then(
+                        R.action(op, function(match, syn, inh) { return [syn]; }),
+                        R.zeroOrMore(R.action(R.then(",", op), function(match, syn, inh) {
+                            return inh.concat([syn]);
+                        })),
+                        "]"
+                    )
+                ),
+                R.action("", function(match, syn, attr) { return ["q", attr]; })),
+            R.action(/[\+\-\*\/\$\^!#%&@<>:]+/, function(match) { return match; }),
+            R.then("[", op, "]")
         );
     }
 );
@@ -817,9 +862,9 @@ function createEval(option) {
         me;
     function evalCode(aString) {
         var aPreprocessed = insertCallDot(aString),
-            parsed = op.parse(aPreprocessed);
+            parsed = op(aPreprocessed, 0, 0);
         if(parsed) {
-            return koumeEval([convertSpecialForm(parsed.attribute, macroEnv, koumeEval)]);
+            return koumeEval([convertSpecialForm(parsed.attr, macroEnv, koumeEval)]);
         } else {
             throw new Error("Syntax error");
         }

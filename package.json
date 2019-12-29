@@ -4,7 +4,7 @@
   "description": "A programming language",
   "main": "index.js",
   "bin": {
-    "dekoration": "./app.js"
+    "deko": "./app.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -33,6 +33,6 @@
   "dependencies": {
     "kalimotxo": "0.0.4",
     "koume": "^0.1.1",
-    "rena-js": "0.0.1"
+    "rena2": "^1.1.0"
   }
 }
