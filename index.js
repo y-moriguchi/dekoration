@@ -440,7 +440,7 @@ var op = R.letrec(
             R.action(
                 R.then(
                     R.action(op, function(match, syn, inh) { return [syn]; }),
-                    R.zeroOrMore(R.action(R.then(";", op), function(match, syn, inh) {
+                    R.zeroOrMore(R.action(R.then(";", R.lookaheadNot("}"), op), function(match, syn, inh) {
                         return inh.concat([syn]);
                     }))
                 ), function(match, syn, inh) {
